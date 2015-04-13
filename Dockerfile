@@ -7,4 +7,4 @@ RUN pip install pyinotify
 ADD bin/update_resolv.py /opt/update_resolv.py
 
 ENTRYPOINT ["/opt/update_resolv.py"]
-CMD ["dns", "--watch", "--dns", "172.17.42.1"]
+CMD ["dns-gen", "--watch", "--dns", "172.17.42.1"]
