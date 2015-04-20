@@ -5,6 +5,7 @@ import sys
 import argparse
 import pyinotify
 from docker import Client
+from docker.errors import APIError
 
 parser = argparse.ArgumentParser(description='Synchronise resolv.conf between the host and a container.')
 parser.add_argument('container', help='id or name of the container')
@@ -13,14 +14,27 @@ parser.add_argument('--dns', help='Dns to sets in the hosts')
 
 args = parser.parse_args()
 
-container = args.container
+container_name = args.container
 watch = args.watch
 
 docker_client = Client()
 
 
-def get_excluded_addresses():
-    container_data = docker_client.inspect_container(container)
+def find_container(container_name):
+    try:
+        return docker_client.inspect_container(container_name)
+    except APIError:
+        pass
+
+    for c in docker_client.containers():
+        if container_name in c['Labels'].keys():
+            return c
+
+    return None
+
+
+def get_excluded_addresses(containerId):
+    container_data = docker_client.inspect_container(containerId)
 
     return [
         '127.0.0.1',
@@ -57,20 +71,20 @@ def is_nameserver_excluded(nameserver, excluded_addresses):
     return False
 
 
-def replace_resolvconf(resolvconf):
-    current_resolvconf = docker_client.execute(container, 'cat /etc/resolv.conf')
+def replace_resolvconf(resolvconf, containerId):
+    current_resolvconf = docker_client.execute(containerId, 'cat /etc/resolv.conf')
     if current_resolvconf != resolvconf:
-        docker_client.execute(container, 'sh -c "echo > /etc/resolv.conf"')
+        docker_client.execute(containerId, 'sh -c "echo > /etc/resolv.conf"')
         for line in resolvconf.splitlines():
-            docker_client.execute(container, 'sh -c "echo \\\"%s\\\" >> /etc/resolv.conf"' % line.replace('"', '\\\\\\\"'))
+            docker_client.execute(containerId, 'sh -c "echo \\\"%s\\\" >> /etc/resolv.conf"' % line.replace('"', '\\\\\\\"'))
 
 
-def get_new_resolvconf():
+def get_new_resolvconf(containerId):
     real_path = get_target_path('/etc/resolv.conf')
     if not os.path.exists(real_path):
         sys.exit(1)
 
-    excluded_addresses = get_excluded_addresses()
+    excluded_addresses = get_excluded_addresses(containerId)
     with open(real_path, 'r') as f:
         return "\n".join([x.strip() for x in f if not is_nameserver_excluded(x, excluded_addresses)])
 
@@ -96,7 +110,11 @@ def sync():
     print('Synchronizing')
     if args.dns:
         inject_dns(args.dns)
-    replace_resolvconf(get_new_resolvconf().strip())
+
+    container = find_container(container_name)['Id']
+    if container is not None:
+        replace_resolvconf(get_new_resolvconf(container).strip(), container)
+
 
 sync()
 
