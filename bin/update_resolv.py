@@ -77,6 +77,7 @@ def replace_resolvconf(resolvconf, containerId):
         docker_client.execute(containerId, 'sh -c "echo > /etc/resolv.conf"')
         for line in resolvconf.splitlines():
             docker_client.execute(containerId, 'sh -c "echo \\\"%s\\\" >> /etc/resolv.conf"' % line.replace('"', '\\\\\\\"'))
+        docker_client.execute(containerId, 'supervisorctl restart dnsmasq')
 
 
 def get_new_resolvconf(containerId):
